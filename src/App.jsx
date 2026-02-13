@@ -303,6 +303,18 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
     }
   };
 
+  const migrateBatches = async () => {
+    if (!confirm('確定要為歷史資料建立批次記錄？\n（這會將沒有批次的舊交易按日期分組）')) return;
+    try {
+      const res = await axios.post('/api/batches');
+      alert(res.data.message || `成功建立 ${res.data.batchesCreated} 個批次，更新 ${res.data.txsUpdated} 筆交易`);
+      loadBatches();
+      onUpload();
+    } catch (err) {
+      alert('遷移失敗: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const deleteBatch = async (batchId, filename) => {
     if (!confirm(`確定要刪除批次「${filename}」及其所有交易？\n\n注意：已建立的分錄不會被刪除。`)) return;
     try {
@@ -404,7 +416,15 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
         {/* 批次記錄列表 */}
         {showBatches && (
           <div className="bg-white rounded shadow p-4 mb-4">
-            <h3 className="font-medium mb-2">上傳批次記錄</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium">上傳批次記錄</h3>
+              <button
+                onClick={migrateBatches}
+                className="text-sm text-purple-600 hover:underline"
+              >
+                🔄 遷移歷史資料
+              </button>
+            </div>
             {batches.length === 0 ? (
               <p className="text-gray-500 text-sm">尚無上傳記錄</p>
             ) : (
