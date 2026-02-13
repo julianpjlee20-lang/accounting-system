@@ -14,6 +14,53 @@ function getDb() {
 export default async function handler(req, res) {
   const db = getDb();
 
+  if (req.method === 'POST') {
+    // Migration: 為舊交易建立批次
+    try {
+      const result = await db.execute(`
+        SELECT * FROM bank_transactions 
+        WHERE batch_id IS NULL 
+        ORDER BY created_at, id
+      `);
+      
+      if (result.rows.length === 0) {
+        return res.json({ success: true, message: '沒有需要遷移的資料' });
+      }
+
+      // 按日期分組
+      const groupedByDate = {};
+      for (const tx of result.rows) {
+        const dateKey = tx.created_at ? tx.created_at.slice(0, 10) : 'unknown';
+        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+        groupedByDate[dateKey].push(tx);
+      }
+
+      let batchesCreated = 0, txsUpdated = 0;
+
+      for (const [dateKey, txs] of Object.entries(groupedByDate)) {
+        const batchResult = await db.execute({
+          sql: 'INSERT INTO upload_batches (filename, row_count, created_at) VALUES (?, ?, ?)',
+          args: [`歷史資料 ${dateKey}`, txs.length, txs[0].created_at || new Date().toISOString()]
+        });
+        const batchId = Number(batchResult.lastInsertRowid);
+        batchesCreated++;
+
+        const txIds = txs.map(t => t.id);
+        const placeholders = txIds.map(() => '?').join(',');
+        await db.execute({
+          sql: `UPDATE bank_transactions SET batch_id = ? WHERE id IN (${placeholders})`,
+          args: [batchId, ...txIds]
+        });
+        txsUpdated += txs.length;
+      }
+
+      return res.json({ success: true, batchesCreated, txsUpdated });
+    } catch (err) {
+      console.error('Error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   if (req.method === 'GET') {
     // 取得所有批次及其交易統計
     try {
