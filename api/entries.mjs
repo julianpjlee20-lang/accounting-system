@@ -1,38 +1,49 @@
-import { getDb, initDb } from './_db.mjs';
+import { createClient } from '@libsql/client';
+
+let db = null;
+
+function getDb() {
+  if (!db) {
+    db = createClient({
+      url: process.env.TURSO_URL,
+      authToken: process.env.TURSO_TOKEN
+    });
+  }
+  return db;
+}
 
 export default async function handler(req, res) {
-  await initDb();
-  const db = getDb();
-  
-  if (req.method === 'GET') {
-    const entriesResult = await db.execute('SELECT * FROM entries ORDER BY date DESC, id DESC');
-    const entries = entriesResult.rows;
+  try {
+    const db = getDb();
     
-    for (const entry of entries) {
-      const linesResult = await db.execute({
-        sql: `SELECT el.*, a.code as account_code, a.name as account_name
-              FROM entry_lines el
-              LEFT JOIN accounts a ON el.account_id = a.id
-              WHERE el.entry_id = ?`,
-        args: [entry.id]
-      });
-      entry.lines = linesResult.rows;
+    if (req.method === 'GET') {
+      const entriesResult = await db.execute('SELECT * FROM entries ORDER BY date DESC, id DESC');
+      const entries = entriesResult.rows;
+      
+      for (const entry of entries) {
+        const linesResult = await db.execute({
+          sql: `SELECT el.*, a.code as account_code, a.name as account_name
+                FROM entry_lines el
+                LEFT JOIN accounts a ON el.account_id = a.id
+                WHERE el.entry_id = ?`,
+          args: [entry.id]
+        });
+        entry.lines = linesResult.rows;
+      }
+      
+      return res.json(entries);
     }
     
-    return res.json(entries);
-  }
-  
-  if (req.method === 'POST') {
-    const { date, description, lines } = req.body;
-    
-    const totalDebit = lines.reduce((sum, l) => sum + (l.debit || 0), 0);
-    const totalCredit = lines.reduce((sum, l) => sum + (l.credit || 0), 0);
-    
-    if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      return res.status(400).json({ error: '借貸不平衡' });
-    }
-    
-    try {
+    if (req.method === 'POST') {
+      const { date, description, lines } = req.body;
+      
+      const totalDebit = lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+      const totalCredit = lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+      
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        return res.status(400).json({ error: '借貸不平衡' });
+      }
+      
       const result = await db.execute({
         sql: 'INSERT INTO entries (date, description) VALUES (?, ?)',
         args: [date, description]
@@ -47,10 +58,11 @@ export default async function handler(req, res) {
       }
       
       return res.json({ id: entryId });
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
     }
+    
+    res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: err.message });
   }
-  
-  res.status(405).json({ error: 'Method not allowed' });
 }
