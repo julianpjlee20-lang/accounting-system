@@ -6,7 +6,13 @@ export default async function handler(req, res) {
   await db.execute(`CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   await db.execute(`CREATE TABLE IF NOT EXISTS entries (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, description TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   await db.execute(`CREATE TABLE IF NOT EXISTS entry_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL, debit REAL DEFAULT 0, credit REAL DEFAULT 0, memo TEXT)`);
-  await db.execute(`CREATE TABLE IF NOT EXISTS bank_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, description TEXT, amount REAL, entry_id INTEGER)`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS bank_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, description TEXT, amount REAL, entry_id INTEGER, company TEXT, label TEXT, debit_account_code TEXT, credit_account_code TEXT)`);
+  
+  // 為舊表加欄位（如果不存在）
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN company TEXT'); } catch(e) {}
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN label TEXT'); } catch(e) {}
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN debit_account_code TEXT'); } catch(e) {}
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN credit_account_code TEXT'); } catch(e) {}
   
   const defaultAccounts = [
     ['1101','現金','asset'],['1102','銀行存款','asset'],['1103','零用金','asset'],['1131','應收帳款','asset'],['1141','應收票據','asset'],['1211','預付款項','asset'],['1411','辦公設備','asset'],
