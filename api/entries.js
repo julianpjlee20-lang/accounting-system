@@ -17,20 +17,53 @@ export default async function handler(req, res) {
     const db = getDb();
     
     if (req.method === 'GET') {
-      const entriesResult = await db.execute('SELECT * FROM entries ORDER BY date DESC, id DESC');
-      const entries = entriesResult.rows;
+      // 一次查詢取得所有分錄和明細行（JOIN）
+      const result = await db.execute(`
+        SELECT 
+          e.id as entry_id,
+          e.date as entry_date,
+          e.description as entry_description,
+          e.created_at as entry_created_at,
+          el.id as line_id,
+          el.account_id,
+          el.debit,
+          el.credit,
+          el.memo,
+          a.code as account_code,
+          a.name as account_name
+        FROM entries e
+        LEFT JOIN entry_lines el ON el.entry_id = e.id
+        LEFT JOIN accounts a ON el.account_id = a.id
+        ORDER BY e.date DESC, e.id DESC, el.id ASC
+      `);
       
-      for (const entry of entries) {
-        const linesResult = await db.execute({
-          sql: `SELECT el.*, a.code as account_code, a.name as account_name
-                FROM entry_lines el
-                LEFT JOIN accounts a ON el.account_id = a.id
-                WHERE el.entry_id = ?`,
-          args: [entry.id]
-        });
-        entry.lines = linesResult.rows;
+      // 在記憶體中組裝成巢狀結構
+      const entriesMap = {};
+      for (const row of result.rows) {
+        if (!entriesMap[row.entry_id]) {
+          entriesMap[row.entry_id] = {
+            id: row.entry_id,
+            date: row.entry_date,
+            description: row.entry_description,
+            created_at: row.entry_created_at,
+            lines: []
+          };
+        }
+        if (row.line_id) {
+          entriesMap[row.entry_id].lines.push({
+            id: row.line_id,
+            entry_id: row.entry_id,
+            account_id: row.account_id,
+            debit: row.debit,
+            credit: row.credit,
+            memo: row.memo,
+            account_code: row.account_code,
+            account_name: row.account_name
+          });
+        }
       }
       
+      const entries = Object.values(entriesMap);
       return res.json(entries);
     }
     
