@@ -20,17 +20,17 @@ export default async function handler(req, res) {
       const result = await db.execute(`
         SELECT * FROM bank_transactions 
         WHERE batch_id IS NULL 
-        ORDER BY created_at, id
+        ORDER BY date, id
       `);
       
       if (result.rows.length === 0) {
         return res.json({ success: true, message: '沒有需要遷移的資料' });
       }
 
-      // 按日期分組
+      // 按交易日期分組（同一天算同一批）
       const groupedByDate = {};
       for (const tx of result.rows) {
-        const dateKey = tx.created_at ? tx.created_at.slice(0, 10) : 'unknown';
+        const dateKey = tx.date || 'unknown';
         if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
         groupedByDate[dateKey].push(tx);
       }
@@ -39,8 +39,8 @@ export default async function handler(req, res) {
 
       for (const [dateKey, txs] of Object.entries(groupedByDate)) {
         const batchResult = await db.execute({
-          sql: 'INSERT INTO upload_batches (filename, row_count, created_at) VALUES (?, ?, ?)',
-          args: [`歷史資料 ${dateKey}`, txs.length, txs[0].created_at || new Date().toISOString()]
+          sql: 'INSERT INTO upload_batches (filename, row_count) VALUES (?, ?)',
+          args: [`歷史資料 ${dateKey}`, txs.length]
         });
         const batchId = Number(batchResult.lastInsertRowid);
         batchesCreated++;
