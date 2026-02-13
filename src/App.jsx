@@ -283,7 +283,33 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
   const [uploadFile, setUploadFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
 
-  const pendingTxs = bankTxs.filter(tx => !tx.entry_id);
+  const pendingTxs = bankTxs.filter(tx => !tx.entry_id && !tx.transfer_pair_id);
+  const pairedTxs = bankTxs.filter(tx => tx.transfer_pair_id && !tx.entry_id);
+  
+  // 內部轉帳配對
+  const [matchSuggestions, setMatchSuggestions] = useState([]);
+  const [loadingMatch, setLoadingMatch] = useState(false);
+
+  const loadMatchSuggestions = async () => {
+    setLoadingMatch(true);
+    try {
+      const res = await axios.get('/api/transfer-match');
+      setMatchSuggestions(res.data.suggestions || []);
+    } catch (err) {
+      console.error('Load match error:', err);
+    }
+    setLoadingMatch(false);
+  };
+
+  const confirmMatch = async (tx1_id, tx2_id) => {
+    try {
+      await axios.post('/api/transfer-match', { tx1_id, tx2_id });
+      onUpload(); // 重新載入
+      loadMatchSuggestions();
+    } catch (err) {
+      alert('配對失敗: ' + (err.response?.data?.error || err.message));
+    }
+  };
 
   // 步驟 1: 選擇檔案並預覽
   const handleFileSelect = async (e) => {
@@ -480,6 +506,68 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
             >
               完成
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* 內部轉帳配對區塊 */}
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-bold">🔄 內部轉帳配對</h3>
+          <button
+            onClick={loadMatchSuggestions}
+            disabled={loadingMatch}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            {loadingMatch ? '偵測中...' : '偵測可能的配對'}
+          </button>
+        </div>
+        
+        {matchSuggestions.length > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-4">
+            <p className="text-sm text-yellow-800 mb-2">
+              發現 {matchSuggestions.length} 組可能的內部轉帳，請確認：
+            </p>
+            {matchSuggestions.map((match, i) => (
+              <div key={i} className="bg-white rounded p-3 mb-2 border">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="font-medium">{match.tx1.date}</div>
+                    <div className="text-gray-600">{match.tx1.company} {match.tx1.description}</div>
+                    <div className={match.tx1.amount < 0 ? 'text-red-600' : 'text-green-600'}>
+                      {match.tx1.amount.toLocaleString()}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-medium">{match.tx2.date}</div>
+                    <div className="text-gray-600">{match.tx2.company} {match.tx2.description}</div>
+                    <div className={match.tx2.amount < 0 ? 'text-red-600' : 'text-green-600'}>
+                      {match.tx2.amount.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 flex justify-between items-center">
+                  <span className="text-xs text-gray-500">
+                    信心度 {Math.round(match.confidence * 100)}% - {match.reason}
+                    {match.amountDiff > 0 && ` (差額 ${match.amountDiff} 元)`}
+                  </span>
+                  <button
+                    onClick={() => confirmMatch(match.tx1.id, match.tx2.id)}
+                    className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                  >
+                    確認配對
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {pairedTxs.length > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded p-3 mb-4">
+            <p className="text-sm text-green-800">
+              ✓ 已配對 {pairedTxs.length / 2} 組內部轉帳（{pairedTxs.length} 筆交易）
+            </p>
           </div>
         )}
       </div>

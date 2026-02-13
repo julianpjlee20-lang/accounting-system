@@ -13,6 +13,8 @@ export default async function handler(req, res) {
   try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN label TEXT'); } catch(e) {}
   try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN debit_account_code TEXT'); } catch(e) {}
   try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN credit_account_code TEXT'); } catch(e) {}
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN transfer_pair_id INTEGER'); } catch(e) {}
+  try { await db.execute('ALTER TABLE bank_transactions ADD COLUMN is_internal_transfer INTEGER DEFAULT 0'); } catch(e) {}
   
   const defaultAccounts = [
     ['1101','現金','asset'],['1102','銀行存款','asset'],['1103','零用金','asset'],['1131','應收帳款','asset'],['1141','應收票據','asset'],['1211','預付款項','asset'],['1411','辦公設備','asset'],
