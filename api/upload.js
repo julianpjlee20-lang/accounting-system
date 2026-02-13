@@ -17,10 +17,12 @@ function getDb() {
 function parseDate(val) {
   if (!val) return null;
   
-  // 如果是 Excel 日期數字
+  // 如果是 Excel 日期數字（Excel 日期是從 1900-01-01 起算的天數）
   if (typeof val === 'number') {
-    const date = XLSX.SSF.parse_date_code(val);
-    return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+    // Excel epoch: 1900-01-01, 但 Excel 有個 bug 認為 1900 是閏年
+    const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
+    const date = new Date(excelEpoch.getTime() + val * 24 * 60 * 60 * 1000);
+    return date.toISOString().slice(0, 10);
   }
   
   // 如果是字串
