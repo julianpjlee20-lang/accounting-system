@@ -480,7 +480,26 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
       </div>
 
       {/* 待處理交易列表 */}
-      <h3 className="font-bold mb-2">待處理交易 ({pendingTxs.length})</h3>
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="font-bold">待處理交易 ({pendingTxs.length})</h3>
+        {pendingTxs.length > 0 && (
+          <button
+            onClick={async () => {
+              if (confirm(`確定要刪除所有 ${pendingTxs.length} 筆待處理交易？\n刪除後可重新上傳新檔案。`)) {
+                try {
+                  await axios.delete('/api/bank-transactions/clear');
+                  onUpload(); // 重新載入
+                } catch (err) {
+                  alert('刪除失敗: ' + (err.response?.data?.error || err.message));
+                }
+              }
+            }}
+            className="text-sm text-red-600 hover:underline"
+          >
+            🗑️ 清除全部
+          </button>
+        )}
+      </div>
       <div className="bg-white rounded shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
