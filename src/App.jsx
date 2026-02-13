@@ -101,11 +101,41 @@ function App() {
             accounts={accounts}
             onAdd={() => { setEditingEntry(null); setShowEntryModal(true); }}
             onEdit={(e) => { setEditingEntry(e); setShowEntryModal(true); }}
-            onDelete={async (id) => {
-              if (confirm('確定刪除此分錄？')) {
-                await axios.delete(`${API}/entries/${id}`);
+            onDelete={async (entry) => {
+              const totalDebit = entry.lines.reduce((sum, l) => sum + l.debit, 0);
+              const totalCredit = entry.lines.reduce((sum, l) => sum + l.credit, 0);
+              const amount = Math.max(totalDebit, totalCredit);
+              
+              const confirmMsg = `⚠️ 確定要刪除此分錄？\n\n` +
+                `日期：${entry.date}\n` +
+                `摘要：${entry.description}\n` +
+                `金額：${amount.toLocaleString()}\n` +
+                `科目：${entry.lines.length} 筆\n\n` +
+                `❌ 此操作不可復原！`;
+              
+              if (!confirm(confirmMsg)) return;
+              
+              try {
+                const res = await axios.delete(`${API}/entries/${entry.id}`);
+                
+                // 顯示警告訊息（如果有）
+                if (res.data.warnings) {
+                  let warnings = [];
+                  if (res.data.warnings.hasBankTransaction) {
+                    warnings.push(`注意：已解除 ${res.data.warnings.affectedTransactions} 筆銀行交易的關聯`);
+                  }
+                  if (res.data.warnings.isLargeAmount) {
+                    warnings.push('這是一筆大額交易（>100萬）');
+                  }
+                  if (warnings.length > 0) {
+                    alert('已刪除\n\n' + warnings.join('\n'));
+                  }
+                }
+                
                 loadEntries();
-                showMsg('已刪除');
+                showMsg('已刪除分錄');
+              } catch (err) {
+                alert('刪除失敗: ' + (err.response?.data?.error || err.message));
               }
             }}
           />
@@ -240,7 +270,7 @@ function JournalTab({ entries, accounts, onAdd, onEdit, onDelete }) {
                         編輯
                       </button>
                       <button 
-                        onClick={() => onDelete(entry.id)}
+                        onClick={() => onDelete(entry)}
                         className="text-red-600 hover:underline"
                       >
                         刪除
