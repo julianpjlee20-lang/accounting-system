@@ -17,7 +17,21 @@ export default async function handler(req, res) {
     const db = getDb();
     
     if (req.method === 'GET') {
-      const result = await db.execute('SELECT * FROM accounts ORDER BY code');
+      // 支援分頁：?limit=100&offset=0
+      const limit = parseInt(req.query.limit) || 500;
+      const offset = parseInt(req.query.offset) || 0;
+      const search = req.query.search || '';
+      
+      let sql, args;
+      if (search) {
+        sql = 'SELECT * FROM accounts WHERE code LIKE ? OR name LIKE ? ORDER BY code LIMIT ? OFFSET ?';
+        args = [`%${search}%`, `%${search}%`, limit, offset];
+      } else {
+        sql = 'SELECT * FROM accounts ORDER BY code LIMIT ? OFFSET ?';
+        args = [limit, offset];
+      }
+      
+      const result = await db.execute({ sql, args });
       return res.json(result.rows);
     }
     
