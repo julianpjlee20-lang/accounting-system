@@ -17,25 +17,34 @@ export default async function handler(req, res) {
     const db = getDb();
     
     if (req.method === 'GET') {
-      // 一次查詢取得所有分錄和明細行（JOIN）
-      const result = await db.execute(`
-        SELECT 
-          e.id as entry_id,
-          e.date as entry_date,
-          e.description as entry_description,
-          e.created_at as entry_created_at,
-          el.id as line_id,
-          el.account_id,
-          el.debit,
-          el.credit,
-          el.memo,
-          a.code as account_code,
-          a.name as account_name
-        FROM entries e
-        LEFT JOIN entry_lines el ON el.entry_id = e.id
-        LEFT JOIN accounts a ON el.account_id = a.id
-        ORDER BY e.date DESC, e.id DESC, el.id ASC
-      `);
+      const limit = parseInt(req.query.limit) || 100;
+      const offset = parseInt(req.query.offset) || 0;
+      
+      // 一次查詢取得分錄和明細行（JOIN），加上 LIMIT 避免超時
+      const result = await db.execute({
+        sql: `
+          SELECT 
+            e.id as entry_id,
+            e.date as entry_date,
+            e.description as entry_description,
+            e.created_at as entry_created_at,
+            el.id as line_id,
+            el.account_id,
+            el.debit,
+            el.credit,
+            el.memo,
+            a.code as account_code,
+            a.name as account_name
+          FROM entries e
+          LEFT JOIN entry_lines el ON el.entry_id = e.id
+          LEFT JOIN accounts a ON el.account_id = a.id
+          WHERE e.id IN (
+            SELECT id FROM entries ORDER BY date DESC, id DESC LIMIT ? OFFSET ?
+          )
+          ORDER BY e.date DESC, e.id DESC, el.id ASC
+        `,
+        args: [limit, offset]
+      });
       
       // 在記憶體中組裝成巢狀結構
       const entriesMap = {};
