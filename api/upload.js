@@ -133,6 +133,13 @@ export default async function handler(req, res) {
     const transactions = [];
     const errors = [];
 
+    // 建立上傳批次記錄
+    const batchResult = await db.execute({
+      sql: 'INSERT INTO upload_batches (filename, row_count) VALUES (?, ?)',
+      args: [sheetName, rows.length - 1]
+    });
+    const batchId = Number(batchResult.lastInsertRowid);
+
     // 先載入所有科目以便匹配
     const accountsResult = await db.execute('SELECT id, code, name FROM accounts');
     const accountsByCode = {};
@@ -171,9 +178,9 @@ export default async function handler(req, res) {
 
       // 存入 bank_transactions
       const result = await db.execute({
-        sql: `INSERT INTO bank_transactions (date, description, amount, company, label, debit_account_code, credit_account_code) 
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [date, description, amount, company, label, debitCode, creditCode]
+        sql: `INSERT INTO bank_transactions (date, description, amount, company, label, debit_account_code, credit_account_code, batch_id) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [date, description, amount, company, label, debitCode, creditCode, batchId]
       });
 
       const tx = {
@@ -226,8 +233,15 @@ export default async function handler(req, res) {
     const autoCount = transactions.filter(t => t.auto_entry).length;
     const pendingCount = transactions.filter(t => !t.auto_entry).length;
 
+    // 更新批次的實際筆數
+    await db.execute({
+      sql: 'UPDATE upload_batches SET row_count = ? WHERE id = ?',
+      args: [transactions.length, batchId]
+    });
+
     res.json({ 
       success: true, 
+      batchId,
       transactions,
       summary: {
         total: transactions.length,

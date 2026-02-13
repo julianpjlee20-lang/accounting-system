@@ -289,6 +289,31 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
   // 內部轉帳配對
   const [matchSuggestions, setMatchSuggestions] = useState([]);
   const [loadingMatch, setLoadingMatch] = useState(false);
+  
+  // 批次管理
+  const [batches, setBatches] = useState([]);
+  const [showBatches, setShowBatches] = useState(false);
+
+  const loadBatches = async () => {
+    try {
+      const res = await axios.get('/api/batches');
+      setBatches(res.data.batches || []);
+    } catch (err) {
+      console.error('Load batches error:', err);
+    }
+  };
+
+  const deleteBatch = async (batchId, filename) => {
+    if (!confirm(`確定要刪除批次「${filename}」及其所有交易？\n\n注意：已建立的分錄不會被刪除。`)) return;
+    try {
+      const res = await axios.delete(`/api/batches?id=${batchId}`);
+      if (res.data.warning) alert(res.data.warning);
+      onUpload();
+      loadBatches();
+    } catch (err) {
+      alert('刪除失敗: ' + (err.response?.data?.error || err.message));
+    }
+  };
 
   const loadMatchSuggestions = async () => {
     setLoadingMatch(true);
@@ -366,7 +391,57 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
     <div>
       {/* 上傳區域 */}
       <div className="mb-6">
-        <h2 className="text-lg font-bold mb-2">上傳銀行對帳單</h2>
+        <div className="flex justify-between items-center mb-2">
+          <h2 className="text-lg font-bold">上傳銀行對帳單</h2>
+          <button
+            onClick={() => { setShowBatches(!showBatches); if (!showBatches) loadBatches(); }}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            {showBatches ? '隱藏批次記錄' : '📁 查看上傳批次'}
+          </button>
+        </div>
+
+        {/* 批次記錄列表 */}
+        {showBatches && (
+          <div className="bg-white rounded shadow p-4 mb-4">
+            <h3 className="font-medium mb-2">上傳批次記錄</h3>
+            {batches.length === 0 ? (
+              <p className="text-gray-500 text-sm">尚無上傳記錄</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left">檔案名稱</th>
+                    <th className="px-3 py-2 text-center">筆數</th>
+                    <th className="px-3 py-2 text-center">已處理</th>
+                    <th className="px-3 py-2 text-center">待處理</th>
+                    <th className="px-3 py-2 text-left">上傳時間</th>
+                    <th className="px-3 py-2 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map(b => (
+                    <tr key={b.id} className="border-t">
+                      <td className="px-3 py-2">{b.filename}</td>
+                      <td className="px-3 py-2 text-center">{b.tx_count}</td>
+                      <td className="px-3 py-2 text-center text-green-600">{b.processed_count}</td>
+                      <td className="px-3 py-2 text-center text-amber-600">{b.pending_count}</td>
+                      <td className="px-3 py-2 text-gray-500">{b.created_at?.replace('T', ' ').slice(0, 16)}</td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => deleteBatch(b.id, b.filename)}
+                          className="text-red-600 hover:underline"
+                        >
+                          刪除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
         
         {uploadStep === 'idle' && (
           <div className="bg-white rounded shadow p-6">
