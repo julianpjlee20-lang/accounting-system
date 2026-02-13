@@ -623,12 +623,12 @@ function ReportsTab() {
   const generateReport = async () => {
     setLoading(true);
     try {
-      let url = `/api/reports/${reportType}`;
       const params = new URLSearchParams();
+      params.append('type', reportType);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       if (endDate && reportType === 'balance-sheet') params.append('asOfDate', endDate);
-      if (params.toString()) url += '?' + params.toString();
+      const url = '/api/reports?' + params.toString();
       
       const res = await axios.get(url);
       setReportData({ type: reportType, data: res.data });
