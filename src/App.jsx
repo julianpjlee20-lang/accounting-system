@@ -114,7 +114,7 @@ function App() {
           <UploadTab 
             bankTxs={bankTxs} 
             accounts={accounts}
-            onUpload={handleUpload}
+            onUpload={() => { loadBankTxs(); loadEntries(); }}
             onCreateEntry={async (txId, debitId, creditId) => {
               try {
                 await axios.post(`${API}/bank-transactions/${txId}/create-entry`, {
@@ -271,24 +271,215 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
   const [selectedTx, setSelectedTx] = useState(null);
   const [debitAccId, setDebitAccId] = useState('');
   const [creditAccId, setCreditAccId] = useState('');
+  
+  // 上傳流程狀態
+  const [uploadStep, setUploadStep] = useState('idle'); // idle, loading, preview, importing, done
+  const [previewData, setPreviewData] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [importResult, setImportResult] = useState(null);
 
   const pendingTxs = bankTxs.filter(tx => !tx.entry_id);
 
+  // 步驟 1: 選擇檔案並預覽
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setUploadFile(file);
+    setUploadStep('loading');
+    setPreviewData(null);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await axios.post('/api/upload-preview', formData);
+      setPreviewData(res.data);
+      setUploadStep('preview');
+    } catch (err) {
+      alert('預覽失敗: ' + (err.response?.data?.error || err.message));
+      setUploadStep('idle');
+    }
+    e.target.value = '';
+  };
+
+  // 步驟 2: 確認匯入
+  const handleConfirmImport = async () => {
+    if (!uploadFile) return;
+    
+    setUploadStep('importing');
+    
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    
+    try {
+      const res = await axios.post('/api/upload', formData);
+      setImportResult(res.data);
+      setUploadStep('done');
+      onUpload(); // 重新載入交易列表
+    } catch (err) {
+      alert('匯入失敗: ' + (err.response?.data?.error || err.message));
+      setUploadStep('preview');
+    }
+  };
+
+  // 取消/重置
+  const handleCancel = () => {
+    setUploadStep('idle');
+    setPreviewData(null);
+    setUploadFile(null);
+    setImportResult(null);
+  };
+
   return (
     <div>
-      <div className="mb-4">
+      {/* 上傳區域 */}
+      <div className="mb-6">
         <h2 className="text-lg font-bold mb-2">上傳銀行對帳單</h2>
-        <p className="text-gray-600 text-sm mb-2">
-          支援 Excel 格式 (.xlsx)，欄位順序：日期、摘要、金額
-        </p>
-        <input
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={onUpload}
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-        />
+        
+        {uploadStep === 'idle' && (
+          <div className="bg-white rounded shadow p-6">
+            <p className="text-gray-600 text-sm mb-4">
+              支援 Excel 格式 (.xlsx)，可自動偵測欄位：公司、日期、摘要、金額、借方科目、貸方科目、標籤
+            </p>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileSelect}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+          </div>
+        )}
+
+        {uploadStep === 'loading' && (
+          <div className="bg-white rounded shadow p-6 text-center">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div>
+            <p className="text-gray-600">正在讀取檔案...</p>
+          </div>
+        )}
+
+        {uploadStep === 'preview' && previewData && (
+          <div className="bg-white rounded shadow p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="font-bold text-green-600">✓ 檔案讀取完成</h3>
+                <p className="text-sm text-gray-600">共偵測到 {previewData.totalRows} 筆資料</p>
+              </div>
+              <button onClick={handleCancel} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            
+            {/* 欄位偵測結果 */}
+            <div className="mb-4 p-3 bg-gray-50 rounded">
+              <p className="text-sm font-medium mb-2">欄位偵測結果：</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {Object.entries(previewData.detectedColumns).map(([key, val]) => (
+                  <div key={key} className="flex">
+                    <span className="text-gray-500 w-20">{key}：</span>
+                    <span className={val === '未偵測' ? 'text-gray-400' : 'text-green-600'}>{val}</span>
+                  </div>
+                ))}
+              </div>
+              {!previewData.hasDebitCredit && (
+                <p className="mt-2 text-sm text-amber-600">
+                  ⚠ 未偵測到借方/貸方科目欄位，匯入後需手動建立分錄
+                </p>
+              )}
+            </div>
+            
+            {/* 資料預覽 */}
+            <div className="mb-4">
+              <p className="text-sm font-medium mb-2">資料預覽（前 {previewData.preview.length} 筆）：</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-1 text-left">日期</th>
+                      <th className="px-2 py-1 text-left">摘要</th>
+                      <th className="px-2 py-1 text-right">金額</th>
+                      {previewData.hasDebitCredit && (
+                        <>
+                          <th className="px-2 py-1 text-left">借方</th>
+                          <th className="px-2 py-1 text-left">貸方</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewData.preview.map((row, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-2 py-1">{row.date}</td>
+                        <td className="px-2 py-1">{row.company ? `[${row.company}] ` : ''}{row.description}</td>
+                        <td className={`px-2 py-1 text-right ${row.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {row.amount.toLocaleString()}
+                        </td>
+                        {previewData.hasDebitCredit && (
+                          <>
+                            <td className="px-2 py-1 text-gray-500">{row.debit_code || '-'}</td>
+                            <td className="px-2 py-1 text-gray-500">{row.credit_code || '-'}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            {/* 確認按鈕 */}
+            <div className="flex justify-end gap-2">
+              <button onClick={handleCancel} className="px-4 py-2 border rounded hover:bg-gray-50">
+                取消
+              </button>
+              <button 
+                onClick={handleConfirmImport}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                確認匯入 {previewData.totalRows} 筆
+              </button>
+            </div>
+          </div>
+        )}
+
+        {uploadStep === 'importing' && (
+          <div className="bg-white rounded shadow p-6 text-center">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div>
+            <p className="text-gray-600">正在匯入資料...</p>
+          </div>
+        )}
+
+        {uploadStep === 'done' && importResult && (
+          <div className="bg-white rounded shadow p-6">
+            <div className="text-center mb-4">
+              <div className="text-4xl mb-2">✅</div>
+              <h3 className="font-bold text-green-600">匯入完成！</h3>
+            </div>
+            <div className="bg-gray-50 rounded p-4 mb-4">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold">{importResult.summary?.total || importResult.transactions?.length || 0}</div>
+                  <div className="text-sm text-gray-500">總筆數</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-green-600">{importResult.summary?.autoEntry || 0}</div>
+                  <div className="text-sm text-gray-500">自動建立分錄</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-amber-600">{importResult.summary?.pending || 0}</div>
+                  <div className="text-sm text-gray-500">待處理</div>
+                </div>
+              </div>
+            </div>
+            <button 
+              onClick={handleCancel}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              完成
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* 待處理交易列表 */}
       <h3 className="font-bold mb-2">待處理交易 ({pendingTxs.length})</h3>
       <div className="bg-white rounded shadow overflow-hidden">
         <table className="w-full">
