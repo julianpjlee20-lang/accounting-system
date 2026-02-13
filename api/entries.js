@@ -20,59 +20,44 @@ export default async function handler(req, res) {
       const limit = parseInt(req.query.limit) || 100;
       const offset = parseInt(req.query.offset) || 0;
       
-      // 一次查詢取得分錄和明細行（JOIN），加上 LIMIT 避免超時
-      const result = await db.execute({
-        sql: `
-          SELECT 
-            e.id as entry_id,
-            e.date as entry_date,
-            e.description as entry_description,
-            e.created_at as entry_created_at,
-            el.id as line_id,
-            el.account_id,
-            el.debit,
-            el.credit,
-            el.memo,
-            a.code as account_code,
-            a.name as account_name
-          FROM entries e
-          LEFT JOIN entry_lines el ON el.entry_id = e.id
-          LEFT JOIN accounts a ON el.account_id = a.id
-          WHERE e.id IN (
-            SELECT id FROM entries ORDER BY date DESC, id DESC LIMIT ? OFFSET ?
-          )
-          ORDER BY e.date DESC, e.id DESC, el.id ASC
-        `,
+      // 第一次查詢：取得分錄（有 LIMIT）
+      const entriesResult = await db.execute({
+        sql: 'SELECT * FROM entries ORDER BY date DESC, id DESC LIMIT ? OFFSET ?',
         args: [limit, offset]
       });
+      const entries = entriesResult.rows;
       
-      // 在記憶體中組裝成巢狀結構
-      const entriesMap = {};
-      for (const row of result.rows) {
-        if (!entriesMap[row.entry_id]) {
-          entriesMap[row.entry_id] = {
-            id: row.entry_id,
-            date: row.entry_date,
-            description: row.entry_description,
-            created_at: row.entry_created_at,
-            lines: []
-          };
-        }
-        if (row.line_id) {
-          entriesMap[row.entry_id].lines.push({
-            id: row.line_id,
-            entry_id: row.entry_id,
-            account_id: row.account_id,
-            debit: row.debit,
-            credit: row.credit,
-            memo: row.memo,
-            account_code: row.account_code,
-            account_name: row.account_name
-          });
-        }
+      if (entries.length === 0) {
+        return res.json([]);
       }
       
-      const entries = Object.values(entriesMap);
+      // 收集所有分錄 ID
+      const entryIds = entries.map(e => e.id);
+      const placeholders = entryIds.map(() => '?').join(',');
+      
+      // 第二次查詢：取得這些分錄的所有明細行
+      const linesResult = await db.execute({
+        sql: `SELECT el.*, a.code as account_code, a.name as account_name
+              FROM entry_lines el
+              LEFT JOIN accounts a ON el.account_id = a.id
+              WHERE el.entry_id IN (${placeholders})
+              ORDER BY el.entry_id, el.id`,
+        args: entryIds
+      });
+      
+      // 組裝資料
+      const linesMap = {};
+      for (const line of linesResult.rows) {
+        if (!linesMap[line.entry_id]) {
+          linesMap[line.entry_id] = [];
+        }
+        linesMap[line.entry_id].push(line);
+      }
+      
+      for (const entry of entries) {
+        entry.lines = linesMap[entry.id] || [];
+      }
+      
       return res.json(entries);
     }
     
