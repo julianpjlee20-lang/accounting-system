@@ -75,6 +75,7 @@ function App() {
           {[
             { id: 'journal', label: '日記帳' },
             { id: 'upload', label: '上傳對帳單' },
+            { id: 'reports', label: '財務報表' },
             { id: 'accounts', label: '科目管理' },
           ].map(t => (
             <button
@@ -129,6 +130,10 @@ function App() {
               }
             }}
           />
+        )}
+
+        {tab === 'reports' && (
+          <ReportsTab />
         )}
 
         {tab === 'accounts' && (
@@ -604,6 +609,265 @@ function UploadTab({ bankTxs, accounts, onUpload, onCreateEntry }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReportsTab() {
+  const [reportType, setReportType] = useState('trial-balance');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [reportData, setReportData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generateReport = async () => {
+    setLoading(true);
+    try {
+      let url = `/api/reports/${reportType}`;
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (endDate && reportType === 'balance-sheet') params.append('asOfDate', endDate);
+      if (params.toString()) url += '?' + params.toString();
+      
+      const res = await axios.get(url);
+      setReportData({ type: reportType, data: res.data });
+    } catch (err) {
+      alert('報表產生失敗: ' + (err.response?.data?.error || err.message));
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold mb-4">財務報表</h2>
+      
+      <div className="bg-white rounded shadow p-4 mb-4">
+        <div className="flex flex-wrap gap-4 items-end">
+          <div>
+            <label className="block text-sm font-medium mb-1">報表類型</label>
+            <select
+              value={reportType}
+              onChange={e => { setReportType(e.target.value); setReportData(null); }}
+              className="border rounded px-3 py-2"
+            >
+              <option value="trial-balance">試算表</option>
+              <option value="balance-sheet">資產負債表</option>
+              <option value="income-statement">損益表</option>
+            </select>
+          </div>
+          
+          {reportType !== 'balance-sheet' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">起始日期</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="border rounded px-3 py-2"
+              />
+            </div>
+          )}
+          
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              {reportType === 'balance-sheet' ? '截止日期' : '結束日期'}
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="border rounded px-3 py-2"
+            />
+          </div>
+          
+          <button
+            onClick={generateReport}
+            disabled={loading}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? '產生中...' : '產生報表'}
+          </button>
+        </div>
+      </div>
+
+      {/* 報表內容 */}
+      {reportData && (
+        <div className="bg-white rounded shadow p-4">
+          {reportData.type === 'trial-balance' && <TrialBalanceReport data={reportData.data} />}
+          {reportData.type === 'balance-sheet' && <BalanceSheetReport data={reportData.data} />}
+          {reportData.type === 'income-statement' && <IncomeStatementReport data={reportData.data} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrialBalanceReport({ data }) {
+  return (
+    <div>
+      <h3 className="text-lg font-bold mb-4 text-center">試算表</h3>
+      <table className="w-full">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-4 py-2 text-left">科目代碼</th>
+            <th className="px-4 py-2 text-left">科目名稱</th>
+            <th className="px-4 py-2 text-right">借方餘額</th>
+            <th className="px-4 py-2 text-right">貸方餘額</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.accounts.map(acc => (
+            <tr key={acc.id} className="border-t">
+              <td className="px-4 py-2 text-gray-500">{acc.code}</td>
+              <td className="px-4 py-2">{acc.name}</td>
+              <td className="px-4 py-2 text-right">{acc.debit_balance > 0 ? acc.debit_balance.toLocaleString() : ''}</td>
+              <td className="px-4 py-2 text-right">{acc.credit_balance > 0 ? acc.credit_balance.toLocaleString() : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-100 font-bold">
+          <tr>
+            <td colSpan={2} className="px-4 py-2 text-right">合計</td>
+            <td className="px-4 py-2 text-right">{data.totals.debit.toLocaleString()}</td>
+            <td className="px-4 py-2 text-right">{data.totals.credit.toLocaleString()}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className={`mt-2 text-center ${data.totals.balanced ? 'text-green-600' : 'text-red-600'}`}>
+        {data.totals.balanced ? '✓ 借貸平衡' : '✗ 借貸不平衡'}
+      </p>
+    </div>
+  );
+}
+
+function BalanceSheetReport({ data }) {
+  return (
+    <div>
+      <h3 className="text-lg font-bold mb-2 text-center">資產負債表</h3>
+      <p className="text-sm text-gray-500 text-center mb-4">截至 {data.asOfDate}</p>
+      
+      <div className="grid grid-cols-2 gap-4">
+        {/* 左側：資產 */}
+        <div>
+          <h4 className="font-bold mb-2 text-blue-700">資產</h4>
+          <table className="w-full text-sm">
+            <tbody>
+              {data.assets.map((item, i) => (
+                <tr key={i} className="border-t">
+                  <td className="py-1">{item.code} {item.name}</td>
+                  <td className="py-1 text-right">{item.balance.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="font-bold border-t-2">
+              <tr>
+                <td className="py-2">資產合計</td>
+                <td className="py-2 text-right">{data.totals.assets.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        
+        {/* 右側：負債及權益 */}
+        <div>
+          <h4 className="font-bold mb-2 text-red-700">負債</h4>
+          <table className="w-full text-sm">
+            <tbody>
+              {data.liabilities.map((item, i) => (
+                <tr key={i} className="border-t">
+                  <td className="py-1">{item.code} {item.name}</td>
+                  <td className="py-1 text-right">{item.balance.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="font-bold border-t">
+              <tr>
+                <td className="py-1">負債小計</td>
+                <td className="py-1 text-right">{data.totals.liabilities.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+          
+          <h4 className="font-bold mt-4 mb-2 text-green-700">權益</h4>
+          <table className="w-full text-sm">
+            <tbody>
+              {data.equity.map((item, i) => (
+                <tr key={i} className="border-t">
+                  <td className="py-1">{item.code} {item.name}</td>
+                  <td className="py-1 text-right">{item.balance.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="font-bold border-t-2">
+              <tr>
+                <td className="py-2">負債及權益合計</td>
+                <td className="py-2 text-right">{data.totals.liabilitiesAndEquity.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      
+      <p className={`mt-4 text-center ${data.totals.balanced ? 'text-green-600' : 'text-red-600'}`}>
+        {data.totals.balanced ? '✓ 資產 = 負債 + 權益' : '✗ 資產 ≠ 負債 + 權益'}
+      </p>
+    </div>
+  );
+}
+
+function IncomeStatementReport({ data }) {
+  return (
+    <div>
+      <h3 className="text-lg font-bold mb-2 text-center">損益表</h3>
+      <p className="text-sm text-gray-500 text-center mb-4">{data.period.start} 至 {data.period.end}</p>
+      
+      <div className="max-w-md mx-auto">
+        <h4 className="font-bold mb-2 text-green-700">收入</h4>
+        <table className="w-full text-sm mb-4">
+          <tbody>
+            {data.revenues.map((item, i) => (
+              <tr key={i} className="border-t">
+                <td className="py-1">{item.code} {item.name}</td>
+                <td className="py-1 text-right">{item.amount.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="font-bold border-t">
+            <tr>
+              <td className="py-1">收入合計</td>
+              <td className="py-1 text-right">{data.totals.revenue.toLocaleString()}</td>
+            </tr>
+          </tfoot>
+        </table>
+        
+        <h4 className="font-bold mb-2 text-red-700">費用</h4>
+        <table className="w-full text-sm mb-4">
+          <tbody>
+            {data.expenses.map((item, i) => (
+              <tr key={i} className="border-t">
+                <td className="py-1">{item.code} {item.name}</td>
+                <td className="py-1 text-right">{item.amount.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="font-bold border-t">
+            <tr>
+              <td className="py-1">費用合計</td>
+              <td className="py-1 text-right">{data.totals.expense.toLocaleString()}</td>
+            </tr>
+          </tfoot>
+        </table>
+        
+        <div className={`text-center p-4 rounded ${data.totals.profitable ? 'bg-green-100' : 'bg-red-100'}`}>
+          <p className="text-lg font-bold">
+            本期{data.totals.profitable ? '淨利' : '淨損'}
+          </p>
+          <p className={`text-2xl font-bold ${data.totals.profitable ? 'text-green-600' : 'text-red-600'}`}>
+            {Math.abs(data.totals.netIncome).toLocaleString()}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
