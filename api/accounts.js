@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     
     if (req.method === 'GET') {
       // 支援分頁：?limit=100&offset=0
-      const limit = parseInt(req.query.limit) || 300;
+      const limit = parseInt(req.query.limit) || 500;
       const offset = parseInt(req.query.offset) || 0;
       const search = req.query.search || '';
       
